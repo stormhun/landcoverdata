@@ -1,0 +1,75 @@
+# add packages to library #
+library(tidycensus)
+library(tidyverse)
+library(tigris)
+library(ggplot2)
+library(sp)
+library(raster)
+library(rgdal)
+library(sf)
+# obtain site coordinates from downloaded csv file #
+sites<-read.csv("C:/Users/maxno/Documents/ThesisData/sites.csv")
+landcover<-raster("C:/Users/maxno/Downloads/nlcd_2019_land_cover_l48_20210604 (2)/nlcd_2019_land_cover_l48_20210604.img")
+
+portlandblock <- blocks("OR", "Washington County")
+
+portlandblockGID <- portlandblock[5]
+
+
+# change projection system #
+NADCRS<-CRS("+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs")
+#Read in landcover just to make sure they are the same CRS
+landcover<-raster("C:/Users/maxno/Downloads/nlcd_2019_land_cover_l48_20210604 (2)/nlcd_2019_land_cover_l48_20210604.img")
+landcoverCRS<-CRS(crs(landcover)@projargs)
+
+#Convert to landcover crs
+portlandblockGID <- st_transform(x = portlandblockGID, landcoverCRS)
+
+##convert SF to stars data object
+portlandblockRASTER <- st_rasterize(portlandblockGID,st_as_stars(st_bbox(portlandblockGID), values = as.double(portlandblock$GEOID10) ))
+#portlandblockRASTER <- st_rasterize(portlandblockGID, st_values = as.double(portlandblock$GEOID10))
+##convert stars object to raster
+portlandblockRASTER <- as(portlandblockRASTER, "Raster")
+## not sure if needed since its crs should be the same as Landcovercrs
+pblockCRS<-CRS(crs(portlandblockGID)@projargs)
+
+# obtain lat/long coordinates from csv file #
+SpatialSites<-SpatialPointsDataFrame(coords=sites[,3:2],data=as.data.frame(sites[,4]),proj4string =NADCRS)
+SpatialSites<-spTransform(SpatialSites,pblockCRS)
+
+##landcover<-raster("C:/Users/maxno/Downloads/nlcd_2019_land_cover_l48_20210604 (2)/nlcd_2019_land_cover_l48_20210604.img")
+
+# set multiple radii spanning 50 to 2000 m, occurring every 50 m #
+radii<-seq(50,2000,50)
+
+# set buffer zone at each radii #
+buffers<-list(NA)
+for(i in radii)
+{
+  buffers[i/50]<-buffer(SpatialSites,i,FALSE)
+}
+
+# set buffer zone at each radii, more succinct #
+buffers<-sapply(radii,function(x) buffer(SpatialSites,x,FALSE))
+
+# set test buffer at 1000 m #
+testSite<-SpatialPointsDataFrame(coords=sites[1,3:2],data=as.data.frame(sites[1,4]),proj4string=NADCRS)
+testSite<-spTransform(testSite,pblockCRS)
+testBuffer<-buffer(testSite,1000,FALSE)
+
+# crop/plot the rastered map
+pblockat1000<-mask(crop(portlandblockRASTER,testBuffer), testBuffer)
+plot(pblockat1000)
+
+
+##other census api 
+census_api_key("d1b7c78e8a5ce61ea336d980dc07a86b7211dc4a") 
+install=TRUE
+age10 <- get_decennial(geography = "block", 
+  county ="Washington County", 
+  state = "OR", 
+  variables = "P1_001N", 
+  year = 2020
+)
+age10
+
